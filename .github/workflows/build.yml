@@ -4,7 +4,7 @@ name: CI
 
 jobs:
   build-linux:
-    name: Build Binaries
+    name: Build Linux Binaries
     runs-on: ubuntu-latest
 
     steps:
@@ -27,6 +27,7 @@ jobs:
           path: target/x86_64-unknown-linux-musl/release/condstrip
 
   build-windows:
+    name: Build Windows Binaries
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v2
