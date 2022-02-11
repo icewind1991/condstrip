@@ -5,7 +5,7 @@ edition = "2018"
 
 [dependencies]
 bitbuffer = "0.10"
-tf-demo-parser = "0.3"
+tf-demo-parser = "0.4"
 
 [profile.dev]
 opt-level = 2
