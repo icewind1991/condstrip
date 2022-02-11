@@ -1,7 +1,7 @@
 use tf_demo_parser::{Demo};
 use tf_demo_parser::demo::header::Header;
 use tf_demo_parser::demo::parser::{RawPacketStream, DemoHandler, Encode};
-use tf_demo_parser::demo::packet::{Packet};
+use tf_demo_parser::demo::packet::{Packet, PacketType};
 use tf_demo_parser::demo::message::Message;
 use bitbuffer::{BitWriteStream, LittleEndian, BitRead, BitWrite};
 use tf_demo_parser::demo::message::packetentities::PacketEntity;
@@ -50,9 +50,11 @@ fn mutate<M: PacketMutator>(input: &[u8], mutator: &M) -> Vec<u8> {
 
         while let Some(mut packet) = packets.next(&handler.state_handler).unwrap() {
             mutator.mutate_packet(&mut packet);
-            packet
-                .encode(&mut out_stream, &handler.state_handler)
-                .unwrap();
+            if packet.packet_type() != PacketType::ConsoleCmd {
+                packet
+                    .encode(&mut out_stream, &handler.state_handler)
+                    .unwrap();
+            }
             handler.handle_packet(packet).unwrap();
         }
     }
