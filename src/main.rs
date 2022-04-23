@@ -1,13 +1,17 @@
+mod mutate;
+
 use tf_demo_parser::{Demo};
 use tf_demo_parser::demo::header::Header;
 use tf_demo_parser::demo::parser::{RawPacketStream, DemoHandler, Encode};
-use tf_demo_parser::demo::packet::{Packet, PacketType};
+use tf_demo_parser::demo::packet::{PacketType};
 use tf_demo_parser::demo::message::Message;
 use bitbuffer::{BitWriteStream, LittleEndian, BitRead, BitWrite};
 use tf_demo_parser::demo::message::packetentities::PacketEntity;
 use tf_demo_parser::demo::sendprop::{SendPropIdentifier, SendPropValue};
 use std::env::args;
 use std::fs;
+use tf_demo_parser::demo::message::usermessage::UserMessageType;
+use crate::mutate::{EntityMutator, MutatorList, PacketMutator};
 
 fn main() {
     let mut args = args();
@@ -24,13 +28,22 @@ fn main() {
     };
     let file = fs::read(&path).unwrap();
     let out_path = format!("{}_no_uber.dem", path.trim_end_matches(".dem"));
-    let mutator = {
+
+    let mut mutators = MutatorList::new();
+    mutators.push_message_filter(|message: &Message| {
+        if let Message::UserMessage(usr_message) = message {
+            UserMessageType::CloseCaption != usr_message.message_type()
+        } else {
+            true
+        }
+    });
+    mutators.push_entity_mutator({
         let mut mask = CondMask::new();
         mask.remove_cond(5);
         mask
-    };
+    });
 
-    let stripped = mutate(&file, &mutator);
+    let stripped = mutate(&file, &mutators);
     fs::write(out_path, stripped).unwrap();
 }
 
@@ -59,34 +72,6 @@ fn mutate<M: PacketMutator>(input: &[u8], mutator: &M) -> Vec<u8> {
         }
     }
     out_buffer
-}
-
-trait PacketMutator {
-    fn mutate_packet(&self, packet: &mut Packet);
-}
-
-impl<T: MessageMutator> PacketMutator for T {
-    fn mutate_packet(&self, packet: &mut Packet) {
-        if let Packet::Message(msg_packet) = packet {
-            msg_packet.messages.iter_mut().for_each(|msg| self.mutate_message(msg));
-        }
-    }
-}
-
-trait MessageMutator {
-    fn mutate_message(&self, message: &mut Message);
-}
-
-impl<T: EntityMutator> MessageMutator for T {
-    fn mutate_message(&self, message: &mut Message) {
-        if let Message::PacketEntities(entity_message) = message {
-            entity_message.entities.iter_mut().for_each(|ent| self.mutate_entity(ent))
-        }
-    }
-}
-
-trait EntityMutator {
-    fn mutate_entity(&self, entity: &mut PacketEntity);
 }
 
 struct CondMask(i64);
