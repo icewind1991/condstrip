@@ -3,104 +3,85 @@ use tf_demo_parser::demo::message::packetentities::PacketEntity;
 use tf_demo_parser::demo::message::Message;
 use tf_demo_parser::demo::packet::Packet;
 
-pub trait PacketMutator {
-    fn mutate_packet(&self, packet: &mut Packet);
-}
-
-pub trait MessageMutator {
-    fn mutate_message(&self, message: &mut Message);
-}
-
-pub trait MessageFilter {
-    fn filter(&self, message: &Message) -> bool;
-}
-
-pub trait EntityMutator {
-    fn mutate_entity(&self, entity: &mut PacketEntity);
-}
-
-struct PacketMessageMutator<T: MessageMutator> {
-    mutator: T,
-}
-
-impl<T: MessageMutator> PacketMutator for PacketMessageMutator<T> {
-    fn mutate_packet(&self, packet: &mut Packet) {
-        if let Packet::Message(msg_packet) = packet {
-            msg_packet
-                .messages
-                .iter_mut()
-                .for_each(|msg| self.mutator.mutate_message(msg));
-        }
+pub trait Mutator {
+    fn filter_packet(&self, packet: &Packet) -> bool {
+        true
     }
-}
 
-impl<F: Fn(&mut Packet)> PacketMutator for F {
-    fn mutate_packet(&self, packet: &mut Packet) {
-        self(packet)
-    }
-}
-
-impl<T: MessageMutator> From<T> for PacketMessageMutator<T> {
-    fn from(mutator: T) -> Self {
-        PacketMessageMutator { mutator }
-    }
-}
-
-impl<F: Fn(&mut Message)> MessageMutator for F {
-    fn mutate_message(&self, message: &mut Message) {
-        self(message)
-    }
-}
-
-struct PacketMessageFilter<T: MessageFilter> {
-    filter: T,
-}
-
-impl<T: MessageFilter> PacketMutator for PacketMessageFilter<T> {
     fn mutate_packet(&self, packet: &mut Packet) {
         if let Packet::Message(msg_packet) = packet {
             let messages = take(&mut msg_packet.messages);
             msg_packet.messages = messages
                 .into_iter()
-                .filter(|msg| self.filter.filter(msg))
+                .filter(|msg| self.filter_message(msg))
+                .map(|mut msg| {
+                    self.mutate_message(&mut msg);
+                    msg
+                })
                 .collect();
         }
     }
-}
 
-impl<T: MessageFilter> From<T> for PacketMessageFilter<T> {
-    fn from(filter: T) -> Self {
-        PacketMessageFilter { filter }
-    }
-}
-
-impl<F: Fn(&Message) -> bool> MessageFilter for F {
-    fn filter(&self, message: &Message) -> bool {
-        self(message)
-    }
-}
-
-struct MessageEntityMutator<T: EntityMutator> {
-    mutator: T,
-}
-
-impl<T: EntityMutator> From<T> for MessageEntityMutator<T> {
-    fn from(mutator: T) -> Self {
-        MessageEntityMutator { mutator }
-    }
-}
-
-impl<T: EntityMutator> MessageMutator for MessageEntityMutator<T> {
     fn mutate_message(&self, message: &mut Message) {
         if let Message::PacketEntities(entity_message) = message {
-            entity_message.entities.iter_mut().for_each(|ent| self.mutator.mutate_entity(ent))
+            entity_message.entities.iter_mut().for_each(|ent| self.mutate_entity(ent))
         }
+    }
+
+    fn mutate_entity(&self, _entity: &mut PacketEntity) {
+
+    }
+
+    fn filter_message(&self, _message: &Message) -> bool {
+        true
+    }
+}
+
+pub struct PacketFilter<F: Fn(&Packet) -> bool>(F);
+
+impl<F: Fn(&Packet) -> bool> PacketFilter<F> {
+    pub fn new(f: F) -> Self<> {
+        Self(f)
+    }
+}
+
+impl<F: Fn(&Packet) -> bool> Mutator for PacketFilter<F> {
+    fn filter_packet(&self, packet: &Packet) -> bool {
+        self.0(packet)
+    }
+}
+
+pub struct MessageFilter<F: Fn(&Message) -> bool>(F);
+
+impl<F: Fn(&Message) -> bool> MessageFilter<F> {
+    pub fn new(f: F) -> Self<> {
+        Self(f)
+    }
+}
+
+impl<F: Fn(&Message) -> bool> Mutator for MessageFilter<F> {
+    fn filter_message(&self, message: &Message) -> bool {
+        self.0(message)
+    }
+}
+
+pub struct MessageMutator<F: Fn(&mut Message)>(F);
+
+impl<F: Fn(&mut Message)> MessageMutator<F> {
+    pub fn new(f: F) -> Self<> {
+        Self(f)
+    }
+}
+
+impl<F: Fn(&mut Message)> Mutator for MessageMutator<F> {
+    fn mutate_message(&self, message: &mut Message) {
+        self.0(message)
     }
 }
 
 #[derive(Default)]
 pub struct MutatorList {
-    mutators: Vec<Box<dyn PacketMutator>>,
+    mutators: Vec<Box<dyn Mutator>>,
 }
 
 impl MutatorList {
@@ -108,27 +89,21 @@ impl MutatorList {
         Self::default()
     }
 
-    pub fn push_packet_mutator<M: PacketMutator + 'static>(&mut self, mutator: M) {
+    pub fn push<M: Mutator + 'static>(&mut self, mutator: M) {
         self.mutators.push(Box::new(mutator))
-    }
-
-    pub fn push_message_mutator<M: MessageMutator + 'static>(&mut self, mutator: M) {
-        self.mutators
-            .push(Box::new(PacketMessageMutator::from(mutator)))
-    }
-
-    pub fn push_entity_mutator<M: EntityMutator + 'static>(&mut self, mutator: M) {
-        self.mutators
-            .push(Box::new(PacketMessageMutator::from(MessageEntityMutator::from(mutator))))
-    }
-
-    pub fn push_message_filter<M: MessageFilter + 'static>(&mut self, filter: M) {
-        self.mutators
-            .push(Box::new(PacketMessageFilter::from(filter)))
     }
 }
 
-impl PacketMutator for MutatorList {
+impl Mutator for MutatorList {
+    fn filter_packet(&self, packet: &Packet) -> bool {
+        for mutator in self.mutators.iter() {
+            if !mutator.filter_packet(packet) {
+                return false;
+            }
+        }
+        true
+    }
+
     fn mutate_packet(&self, packet: &mut Packet) {
         for mutator in self.mutators.iter() {
             mutator.mutate_packet(packet);

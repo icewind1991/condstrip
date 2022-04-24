@@ -11,7 +11,7 @@ use tf_demo_parser::demo::sendprop::{SendPropIdentifier, SendPropValue};
 use std::env::args;
 use std::fs;
 use tf_demo_parser::demo::message::usermessage::UserMessageType;
-use crate::mutate::{EntityMutator, MutatorList, PacketMutator};
+use crate::mutate::{MessageFilter, Mutator, MutatorList, PacketFilter};
 
 fn main() {
     let mut args = args();
@@ -30,14 +30,17 @@ fn main() {
     let out_path = format!("{}_no_uber.dem", path.trim_end_matches(".dem"));
 
     let mut mutators = MutatorList::new();
-    mutators.push_message_filter(|message: &Message| {
+    mutators.push(MessageFilter::new(|message| {
         if let Message::UserMessage(usr_message) = message {
             UserMessageType::CloseCaption != usr_message.message_type()
         } else {
             true
         }
-    });
-    mutators.push_entity_mutator({
+    }));
+    mutators.push(PacketFilter::new(|packet| {
+        packet.packet_type() != PacketType::ConsoleCmd
+    }));
+    mutators.push({
         let mut mask = CondMask::new();
         mask.remove_cond(5);
         mask
@@ -47,7 +50,7 @@ fn main() {
     fs::write(out_path, stripped).unwrap();
 }
 
-fn mutate<M: PacketMutator>(input: &[u8], mutator: &M) -> Vec<u8> {
+fn mutate<M: Mutator>(input: &[u8], mutator: &M) -> Vec<u8> {
     let mut out_buffer = Vec::with_capacity(input.len());
     {
         let mut out_stream = BitWriteStream::new(&mut out_buffer, LittleEndian);
@@ -62,8 +65,8 @@ fn mutate<M: PacketMutator>(input: &[u8], mutator: &M) -> Vec<u8> {
         handler.handle_header(&header);
 
         while let Some(mut packet) = packets.next(&handler.state_handler).unwrap() {
-            mutator.mutate_packet(&mut packet);
-            if packet.packet_type() != PacketType::ConsoleCmd {
+            if mutator.filter_packet(&packet) {
+                mutator.mutate_packet(&mut packet);
                 packet
                     .encode(&mut out_stream, &handler.state_handler)
                     .unwrap();
@@ -88,7 +91,7 @@ impl CondMask {
 
 const PROP_ID: SendPropIdentifier = SendPropIdentifier::new("DT_TFPlayerShared", "m_nPlayerCond");
 
-impl EntityMutator for CondMask {
+impl Mutator for CondMask {
     fn mutate_entity(&self, entity: &mut PacketEntity) {
         entity.props.iter_mut().filter(|prop| prop.identifier == PROP_ID).for_each(|prop| {
             if let SendPropValue::Integer(value) = &mut prop.value {
