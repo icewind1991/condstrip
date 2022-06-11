@@ -59,6 +59,8 @@ fn mutate(input: &[u8]) -> Vec<u8> {
             let mut mask = CondMask::new(dbg!(get_player(&demo)));
             mask.remove_cond(5); // uber
             mask.remove_cond(8); // uber wearing off
+            mask.remove_cond(28); // qf
+            mask.remove_cond(11); // kritz
             mask
         });
 
