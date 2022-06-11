@@ -4,7 +4,7 @@ use tf_demo_parser::demo::message::Message;
 use tf_demo_parser::demo::packet::Packet;
 
 pub trait Mutator {
-    fn filter_packet(&self, packet: &Packet) -> bool {
+    fn filter_packet(&self, _packet: &Packet) -> bool {
         true
     }
 
@@ -68,6 +68,7 @@ impl<F: Fn(&Message) -> bool> Mutator for MessageFilter<F> {
 pub struct MessageMutator<F: Fn(&mut Message)>(F);
 
 impl<F: Fn(&mut Message)> MessageMutator<F> {
+    #[allow(dead_code)]
     pub fn new(f: F) -> Self<> {
         Self(f)
     }
