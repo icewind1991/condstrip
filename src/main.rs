@@ -8,33 +8,31 @@ use tf_demo_parser::demo::message::Message;
 use bitbuffer::{BitWriteStream, LittleEndian, BitRead, BitWrite};
 use tf_demo_parser::demo::message::packetentities::{EntityId, PacketEntity};
 use tf_demo_parser::demo::sendprop::{SendPropIdentifier, SendPropValue};
-use std::env::args;
 use std::fs;
 use tf_demo_parser::demo::message::usermessage::UserMessageType;
 use tf_demo_parser::demo::packet::message::MessagePacket;
 use crate::mutate::{MessageFilter, Mutator, MutatorList, PacketFilter};
+use clap::Parser;
+use tf_demo_parser::demo::data::UserInfo;
+use tf_demo_parser::demo::packet::stringtable::StringTablePacket;
+
+#[derive(Parser, Debug)]
+#[clap(author, version, about, long_about = None)]
+struct Args {
+    path: String,
+    user: Option<String>,
+}
 
 fn main() {
-    let mut args = args();
-    let bin = args.next().unwrap();
-    let path = match args.next() {
-        Some(file) => file,
-        None => {
-            println!(
-                "usage: {} <demo>",
-                bin
-            );
-            return;
-        }
-    };
-    let file = fs::read(&path).unwrap();
-    let out_path = format!("{}_no_uber.dem", path.trim_end_matches(".dem"));
+    let args = Args::parse();
+    let file = fs::read(&args.path).unwrap();
+    let out_path = format!("{}_no_uber.dem", args.path.trim_end_matches(".dem"));
 
-    let stripped = mutate(&file);
+    let stripped = mutate(&file, args.user.map(|user| user.to_ascii_lowercase()));
     fs::write(out_path, stripped).unwrap();
 }
 
-fn mutate(input: &[u8]) -> Vec<u8> {
+fn mutate(input: &[u8], user: Option<String>) -> Vec<u8> {
     let mut out_buffer = Vec::with_capacity(input.len());
     {
         let mut out_stream = BitWriteStream::new(&mut out_buffer, LittleEndian);
@@ -56,7 +54,7 @@ fn mutate(input: &[u8]) -> Vec<u8> {
             packet.packet_type() != PacketType::ConsoleCmd
         }));
         mutator.push({
-            let mut mask = CondMask::new(dbg!(get_player(&demo)));
+            let mut mask = CondMask::new(get_player(&demo, user.as_deref()));
             mask.remove_cond(5); // uber
             mask.remove_cond(8); // uber wearing off
             mask.remove_cond(28); // qf
@@ -81,16 +79,16 @@ fn mutate(input: &[u8]) -> Vec<u8> {
     out_buffer
 }
 
-struct CondMask{
+struct CondMask {
     cond: i64,
-    entity: EntityId
+    entity: EntityId,
 }
 
 impl CondMask {
     pub fn new(entity: EntityId) -> Self {
-        CondMask{
+        CondMask {
             cond: i64::MAX,
-            entity
+            entity,
         }
     }
 
@@ -113,7 +111,7 @@ impl Mutator for CondMask {
     }
 }
 
-fn get_player(demo: &Demo) -> EntityId {
+fn get_player(demo: &Demo, user: Option<&str>) -> EntityId {
     let mut stream = demo.get_stream();
     let header = Header::read(&mut stream).unwrap();
 
@@ -122,10 +120,26 @@ fn get_player(demo: &Demo) -> EntityId {
     handler.handle_header(&header);
 
     while let Some(packet) = packets.next(&handler.state_handler).unwrap() {
-        if let Packet::Signon(MessagePacket{messages, ..}) = &packet {
-            for message in messages {
-                if let Message::ServerInfo(info) = message {
-                    return EntityId::from(info.player_slot as u32 + 1);
+        if let Some(user) = user {
+            if let Packet::StringTables(StringTablePacket { tables, .. }) = &packet {
+                for table in tables {
+                    if table.name == "userinfo" {
+                        for (_, entry) in &table.entries {
+                            if let Ok(Some(info)) = UserInfo::parse_from_string_table(entry.text.as_deref(), entry.extra_data.as_ref().map(|data| data.data.clone())) {
+                                if info.player_info.name.to_ascii_lowercase().contains(user) {
+                                    return info.entity_id;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            if let Packet::Signon(MessagePacket { messages, .. }) = &packet {
+                for message in messages {
+                    if let Message::ServerInfo(info) = message {
+                        return EntityId::from(info.player_slot as u32 + 1);
+                    }
                 }
             }
         }

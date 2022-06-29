@@ -4,9 +4,10 @@ version = "0.1.0"
 edition = "2018"
 
 [dependencies]
-bitbuffer = "0.10"
+bitbuffer = "0.10.7"
 #tf-demo-parser = { version = "0.4", path = "../tf-demo-parser" }
 tf-demo-parser = { version = "0.4", git = "https://github.com/demostf/parser" }
+clap = { version = "3.2.7", features = ["derive"] }
 
 [profile.dev]
 opt-level = 2
