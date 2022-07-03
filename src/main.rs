@@ -59,6 +59,8 @@ fn mutate(input: &[u8], user: Option<String>) -> Vec<u8> {
             mask.remove_cond(8); // uber wearing off
             mask.remove_cond(28); // qf
             mask.remove_cond(11); // kritz
+            mask.remove_cond(24); // jarate
+            mask.remove_cond(25); // bleed
             mask
         });
 
