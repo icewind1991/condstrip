@@ -1,2 +1,4 @@
 /target
 *.dem
+result
+.direnv

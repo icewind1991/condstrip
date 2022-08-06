@@ -1,20 +1,19 @@
 mod mutate;
 
-use tf_demo_parser::{Demo};
+use tf_demo_parser::{Demo, DemoParser, MessageType, ParserState};
 use tf_demo_parser::demo::header::Header;
-use tf_demo_parser::demo::parser::{RawPacketStream, DemoHandler, Encode};
-use tf_demo_parser::demo::packet::{Packet, PacketType};
+use tf_demo_parser::demo::parser::{RawPacketStream, DemoHandler, Encode, MessageHandler};
+use tf_demo_parser::demo::packet::{PacketType};
 use tf_demo_parser::demo::message::Message;
 use bitbuffer::{BitWriteStream, LittleEndian, BitRead, BitWrite};
 use tf_demo_parser::demo::message::packetentities::{EntityId, PacketEntity};
 use tf_demo_parser::demo::sendprop::{SendPropIdentifier, SendPropValue};
 use std::fs;
 use tf_demo_parser::demo::message::usermessage::UserMessageType;
-use tf_demo_parser::demo::packet::message::MessagePacket;
 use crate::mutate::{MessageFilter, Mutator, MutatorList, PacketFilter};
 use clap::Parser;
 use tf_demo_parser::demo::data::UserInfo;
-use tf_demo_parser::demo::packet::stringtable::StringTablePacket;
+use tf_demo_parser::demo::packet::stringtable::{StringTableEntry};
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -54,7 +53,7 @@ fn mutate(input: &[u8], user: Option<String>) -> Vec<u8> {
             packet.packet_type() != PacketType::ConsoleCmd
         }));
         mutator.push({
-            let mut mask = CondMask::new(get_player(&demo, user.as_deref()));
+            let mut mask = CondMask::new(dbg!(get_player(&demo, user)));
             mask.remove_cond(5); // uber
             mask.remove_cond(8); // uber wearing off
             mask.remove_cond(28); // qf
@@ -113,39 +112,55 @@ impl Mutator for CondMask {
     }
 }
 
-fn get_player(demo: &Demo, user: Option<&str>) -> EntityId {
-    let mut stream = demo.get_stream();
-    let header = Header::read(&mut stream).unwrap();
+fn get_player(demo: &Demo, user: Option<String>) -> EntityId {
+    let parser = DemoParser::new_with_analyser(demo.get_stream(), PlayerSearchHandler::new(user));
 
-    let mut packets = RawPacketStream::new(stream.clone());
-    let mut handler = DemoHandler::default();
-    handler.handle_header(&header);
+    parser.parse().expect("failed to parse demo").1.expect("no server info or player not found")
+}
 
-    while let Some(packet) = packets.next(&handler.state_handler).unwrap() {
-        if let Some(user) = user {
-            if let Packet::StringTables(StringTablePacket { tables, .. }) = &packet {
-                for table in tables {
-                    if table.name == "userinfo" {
-                        for (_, entry) in &table.entries {
-                            if let Ok(Some(info)) = UserInfo::parse_from_string_table(entry.text.as_deref(), entry.extra_data.as_ref().map(|data| data.data.clone())) {
-                                if info.player_info.name.to_ascii_lowercase().contains(user) {
-                                    return info.entity_id;
-                                }
-                            }
-                        }
-                    }
-                }
+struct PlayerSearchHandler {
+    user: Option<String>,
+    entity: Option<EntityId>,
+}
+
+impl PlayerSearchHandler {
+    pub fn new(user: Option<String>) -> Self {
+        PlayerSearchHandler {
+            user,
+            entity: None,
+        }
+    }
+}
+
+impl MessageHandler for PlayerSearchHandler {
+    type Output = Option<EntityId>;
+
+    fn does_handle(_message_type: MessageType) -> bool {
+        true
+    }
+
+    fn handle_message(&mut self, message: &Message, _tick: u32, _parser_state: &ParserState) {
+        if self.user.is_none() {
+            if let Message::ServerInfo(info) = message {
+                self.entity = Some(EntityId::from(info.player_slot as u32 + 1));
             }
-        } else {
-            if let Packet::Signon(MessagePacket { messages, .. }) = &packet {
-                for message in messages {
-                    if let Message::ServerInfo(info) = message {
-                        return EntityId::from(info.player_slot as u32 + 1);
+        }
+    }
+
+
+    fn handle_string_entry(&mut self, table: &str, _index: usize, entry: &StringTableEntry, _parser_state: &ParserState) {
+        if let Some(user) = self.user.as_deref() {
+            if table == "userinfo" {
+                if let Ok(Some(info)) = UserInfo::parse_from_string_table(entry.text.as_deref(), entry.extra_data.as_ref().map(|data| data.data.clone())) {
+                    if info.player_info.name.to_ascii_lowercase().contains(user) {
+                        self.entity = Some(info.entity_id);
                     }
                 }
             }
         }
-        handler.handle_packet(packet).unwrap();
     }
-    panic!("no server info");
+
+    fn into_output(self, _state: &ParserState) -> Self::Output {
+        self.entity
+    }
 }
