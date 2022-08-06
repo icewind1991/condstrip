@@ -91,6 +91,9 @@ struct CondMask {
 
 impl CondMask {
     pub fn new(entity: EntityId) -> Self {
+        if entity == 1 {
+            eprintln!("Attempting to strip stv demo without specifying a player")
+        }
         CondMask {
             cond: i64::MAX,
             entity,
