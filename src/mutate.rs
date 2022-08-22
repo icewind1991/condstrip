@@ -9,28 +9,32 @@ pub trait Mutator {
     }
 
     fn mutate_packet(&self, packet: &mut Packet) {
-        if let Packet::Message(msg_packet) = packet {
-            let messages = take(&mut msg_packet.messages);
-            msg_packet.messages = messages
-                .into_iter()
-                .filter(|msg| self.filter_message(msg))
-                .map(|mut msg| {
-                    self.mutate_message(&mut msg);
-                    msg
-                })
-                .collect();
+        match packet {
+            Packet::Message(msg_packet) | Packet::Signon(msg_packet) => {
+                let messages = take(&mut msg_packet.messages);
+                msg_packet.messages = messages
+                    .into_iter()
+                    .filter(|msg| self.filter_message(msg))
+                    .map(|mut msg| {
+                        self.mutate_message(&mut msg);
+                        msg
+                    })
+                    .collect();
+            }
+            _ => {}
         }
     }
 
     fn mutate_message(&self, message: &mut Message) {
         if let Message::PacketEntities(entity_message) = message {
-            entity_message.entities.iter_mut().for_each(|ent| self.mutate_entity(ent))
+            entity_message
+                .entities
+                .iter_mut()
+                .for_each(|ent| self.mutate_entity(ent))
         }
     }
 
-    fn mutate_entity(&self, _entity: &mut PacketEntity) {
-
-    }
+    fn mutate_entity(&self, _entity: &mut PacketEntity) {}
 
     fn filter_message(&self, _message: &Message) -> bool {
         true
@@ -40,7 +44,7 @@ pub trait Mutator {
 pub struct PacketFilter<F: Fn(&Packet) -> bool>(F);
 
 impl<F: Fn(&Packet) -> bool> PacketFilter<F> {
-    pub fn new(f: F) -> Self<> {
+    pub fn new(f: F) -> Self {
         Self(f)
     }
 }
@@ -54,7 +58,7 @@ impl<F: Fn(&Packet) -> bool> Mutator for PacketFilter<F> {
 pub struct MessageFilter<F: Fn(&Message) -> bool>(F);
 
 impl<F: Fn(&Message) -> bool> MessageFilter<F> {
-    pub fn new(f: F) -> Self<> {
+    pub fn new(f: F) -> Self {
         Self(f)
     }
 }
@@ -69,7 +73,7 @@ pub struct MessageMutator<F: Fn(&mut Message)>(F);
 
 impl<F: Fn(&mut Message)> MessageMutator<F> {
     #[allow(dead_code)]
-    pub fn new(f: F) -> Self<> {
+    pub fn new(f: F) -> Self {
         Self(f)
     }
 }

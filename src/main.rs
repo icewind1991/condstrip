@@ -1,19 +1,19 @@
 mod mutate;
 mod playersearch;
 
-use tf_demo_parser::{Demo};
-use tf_demo_parser::demo::header::Header;
-use tf_demo_parser::demo::parser::{RawPacketStream, DemoHandler, Encode};
-use tf_demo_parser::demo::packet::{PacketType};
-use tf_demo_parser::demo::message::Message;
-use bitbuffer::{BitWriteStream, LittleEndian, BitRead, BitWrite};
-use tf_demo_parser::demo::message::packetentities::{EntityId, PacketEntity};
-use tf_demo_parser::demo::sendprop::{SendPropIdentifier, SendPropValue};
-use std::fs;
-use tf_demo_parser::demo::message::usermessage::UserMessageType;
 use crate::mutate::{MessageFilter, Mutator, MutatorList, PacketFilter};
-use clap::Parser;
 use crate::playersearch::get_player;
+use bitbuffer::{BitRead, BitWrite, BitWriteStream, LittleEndian};
+use clap::Parser;
+use std::fs;
+use tf_demo_parser::demo::header::Header;
+use tf_demo_parser::demo::message::packetentities::{EntityId, PacketEntity};
+use tf_demo_parser::demo::message::usermessage::UserMessageType;
+use tf_demo_parser::demo::message::Message;
+use tf_demo_parser::demo::packet::PacketType;
+use tf_demo_parser::demo::parser::{DemoHandler, Encode, RawPacketStream};
+use tf_demo_parser::demo::sendprop::{SendPropIdentifier, SendPropValue};
+use tf_demo_parser::Demo;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -108,11 +108,15 @@ const PROP_ID: SendPropIdentifier = SendPropIdentifier::new("DT_TFPlayerShared",
 impl Mutator for CondMask {
     fn mutate_entity(&self, entity: &mut PacketEntity) {
         if entity.entity_index == self.entity {
-            entity.props.iter_mut().filter(|prop| prop.identifier == PROP_ID).for_each(|prop| {
-                if let SendPropValue::Integer(value) = &mut prop.value {
-                    *value &= self.cond;
-                }
-            })
+            entity
+                .props
+                .iter_mut()
+                .filter(|prop| prop.identifier == PROP_ID)
+                .for_each(|prop| {
+                    if let SendPropValue::Integer(value) = &mut prop.value {
+                        *value &= self.cond;
+                    }
+                })
         }
     }
 }
