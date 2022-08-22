@@ -33,7 +33,7 @@
             targets = [ "x86_64-pc-windows-gnu" ];
           })
           bacon
-          mingw_w64_cc
+#          mingw_w64_cc
         ];
         depsBuildBuild = [ pkgs.wine64 ];
         # buildInputs = [ windows.pthreads ];

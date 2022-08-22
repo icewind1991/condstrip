@@ -9,6 +9,9 @@ bitbuffer = "0.10.7"
 tf-demo-parser = { version = "0.4", git = "https://github.com/demostf/parser" }
 clap = { version = "3.2.7", features = ["derive"] }
 steamid-ng = "1.0.0"
+demostf-client = { version = "0.4.3", default-features = false, features = ["rustls-tls"] }
+tokio = { version = "1.19.2", features = ["rt", "rt-multi-thread"] }
+tracing = "0.1.35"
 
 [profile.dev]
 opt-level = 2

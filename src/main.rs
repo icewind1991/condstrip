@@ -1,9 +1,9 @@
 mod mutate;
+mod playersearch;
 
-use std::convert::TryFrom;
-use tf_demo_parser::{Demo, DemoParser, MessageType, ParserState};
+use tf_demo_parser::{Demo};
 use tf_demo_parser::demo::header::Header;
-use tf_demo_parser::demo::parser::{RawPacketStream, DemoHandler, Encode, MessageHandler};
+use tf_demo_parser::demo::parser::{RawPacketStream, DemoHandler, Encode};
 use tf_demo_parser::demo::packet::{PacketType};
 use tf_demo_parser::demo::message::Message;
 use bitbuffer::{BitWriteStream, LittleEndian, BitRead, BitWrite};
@@ -13,9 +13,7 @@ use std::fs;
 use tf_demo_parser::demo::message::usermessage::UserMessageType;
 use crate::mutate::{MessageFilter, Mutator, MutatorList, PacketFilter};
 use clap::Parser;
-use steamid_ng::SteamID;
-use tf_demo_parser::demo::data::UserInfo;
-use tf_demo_parser::demo::packet::stringtable::{StringTableEntry};
+use crate::playersearch::get_player;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -57,7 +55,7 @@ fn mutate(input: &[u8], user: Option<String>) -> Vec<u8> {
             packet.packet_type() != PacketType::ConsoleCmd
         }));
         mutator.push({
-            let mut mask = CondMask::new(get_player(&demo, user));
+            let mut mask = CondMask::new(get_player(&demo, user).0);
             mask.remove_cond(5); // uber
             mask.remove_cond(8); // uber wearing off
             mask.remove_cond(28); // qf
@@ -116,81 +114,5 @@ impl Mutator for CondMask {
                 }
             })
         }
-    }
-}
-
-fn get_player(demo: &Demo, user: Option<String>) -> EntityId {
-    let parser = DemoParser::new_with_analyser(demo.get_stream(), PlayerSearchHandler::new(user));
-
-    parser.parse().expect("failed to parse demo").1.expect("no server info or player not found")
-}
-
-enum PlayerFilter {
-    Name(String),
-    SteamId(SteamID),
-}
-
-impl PlayerFilter {
-    fn new(filter: String) -> Self {
-        match SteamID::try_from(filter.as_str()) {
-            Ok(steam_id) => PlayerFilter::SteamId(steam_id),
-            Err(_) => PlayerFilter::Name(filter)
-        }
-    }
-
-    fn matches(&self, info: &UserInfo) -> bool {
-        match self {
-            PlayerFilter::Name(name) => info.player_info.name.to_ascii_lowercase().contains(name),
-            PlayerFilter::SteamId(steam_id) => {
-                SteamID::try_from(info.player_info.steam_id.as_str()).ok() == Some(*steam_id)
-            }
-        }
-    }
-}
-
-struct PlayerSearchHandler {
-    filter: Option<PlayerFilter>,
-    entity: Option<EntityId>,
-}
-
-impl PlayerSearchHandler {
-    pub fn new(user: Option<String>) -> Self {
-        PlayerSearchHandler {
-            filter: user.map(PlayerFilter::new),
-            entity: None,
-        }
-    }
-}
-
-impl MessageHandler for PlayerSearchHandler {
-    type Output = Option<EntityId>;
-
-    fn does_handle(_message_type: MessageType) -> bool {
-        true
-    }
-
-    fn handle_message(&mut self, message: &Message, _tick: u32, _parser_state: &ParserState) {
-        if self.filter.is_none() {
-            if let Message::ServerInfo(info) = message {
-                self.entity = Some(EntityId::from(info.player_slot as u32 + 1));
-            }
-        }
-    }
-
-
-    fn handle_string_entry(&mut self, table: &str, _index: usize, entry: &StringTableEntry, _parser_state: &ParserState) {
-        if let Some(filter) = self.filter.as_ref() {
-            if table == "userinfo" {
-                if let Ok(Some(info)) = UserInfo::parse_from_string_table(entry.text.as_deref(), entry.extra_data.as_ref().map(|data| data.data.clone())) {
-                    if filter.matches(&info) {
-                        self.entity = Some(info.entity_id);
-                    }
-                }
-            }
-        }
-    }
-
-    fn into_output(self, _state: &ParserState) -> Self::Output {
-        self.entity
     }
 }
